@@ -49,7 +49,7 @@ Status ExceptNode::open(RuntimeState* state) {
     bool eos = false;
 
     for (int i = 1; i < _children.size(); ++i) {
-        // rebuid hash table, for first time will rebuild with the no duplicated _hash_tbl,
+        // rebuild hash table, for first time will rebuild with the no duplicated _hash_tbl,
         if (i > 1) {
             SCOPED_TIMER(_build_timer);
             std::unique_ptr<HashTable> temp_tbl(
@@ -69,7 +69,8 @@ Status ExceptNode::open(RuntimeState* state) {
             temp_tbl->close();
         }
         // probe
-        _probe_batch.reset(new RowBatch(child(i)->row_desc(), state->batch_size(), mem_tracker().get()));
+        _probe_batch.reset(
+                new RowBatch(child(i)->row_desc(), state->batch_size(), mem_tracker().get()));
         ScopedTimer<MonotonicStopWatch> probe_timer(_probe_timer);
         RETURN_IF_ERROR(child(i)->open(state));
         eos = false;
@@ -84,7 +85,8 @@ Status ExceptNode::open(RuntimeState* state) {
                 if (_hash_tbl_iterator != _hash_tbl->end()) {
                     _hash_tbl_iterator.set_matched();
                     VLOG_ROW << "probe matched: "
-                             << get_row_output_string(_hash_tbl_iterator.get_row(), child(0)->row_desc());
+                             << get_row_output_string(_hash_tbl_iterator.get_row(),
+                                                      child(0)->row_desc());
                 }
             }
             _probe_batch->reset();

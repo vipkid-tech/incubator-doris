@@ -26,6 +26,7 @@ import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -270,35 +271,18 @@ public abstract class AlterHandler extends MasterDaemon {
         alterJob.handleFinishedReplica(task, finishTabletInfo, reportVersion);
     }
 
-    /*
-     * cancel alter job when drop table
-     * olapTable: 
-     *      table which is being dropped
-     */
-    public void cancelWithTable(OlapTable olapTable) {
-        // make sure to hold to db write lock before calling this
-        AlterJob alterJob = getAlterJob(olapTable.getId());
-        if (alterJob == null) {
-            return;
-        }
-        alterJob.cancel(olapTable, "table is dropped");
-
-        // remove from alterJobs and add to finishedOrCancelledAlterJobs operation should be perform atomically
-        lock();
-        try {
-            alterJob = alterJobs.remove(olapTable.getId());
-            if (alterJob != null) {
-                alterJob.clear();
-                finishedOrCancelledAlterJobs.add(alterJob);
-            }
-        } finally {
-            unlock();
-        }
-    }
-
     protected void cancelInternal(AlterJob alterJob, OlapTable olapTable, String msg) {
         // cancel
-        alterJob.cancel(olapTable, msg);
+        if (olapTable != null) {
+            olapTable.writeLock();
+        }
+        try {
+            alterJob.cancel(olapTable, msg);
+        } finally {
+            if (olapTable != null) {
+                olapTable.writeUnlock();
+            }
+        }
         jobDone(alterJob);
     }
 
@@ -381,6 +365,12 @@ public abstract class AlterHandler extends MasterDaemon {
             throws UserException;
 
     /*
+     * entry function. handle alter ops for external table
+     */
+    public void processExternalTable(List<AlterClause> alterClauses, Database db, Table externalTable)
+            throws UserException {};
+
+    /*
      * cancel alter ops
      */
     public abstract void cancel(CancelStmt stmt) throws DdlException;
@@ -420,12 +410,9 @@ public abstract class AlterHandler extends MasterDaemon {
             throw new MetaNotFoundException("database " + task.getDbId() + " does not exist");
         }
 
-        db.writeLock();
+        OlapTable tbl = (OlapTable) db.getTableOrThrowException(task.getTableId(), Table.TableType.OLAP);
+        tbl.writeLock();
         try {
-            OlapTable tbl = (OlapTable) db.getTable(task.getTableId());
-            if (tbl == null) {
-                throw new MetaNotFoundException("tbl " + task.getTableId() + " does not exist");
-            }
             Partition partition = tbl.getPartition(task.getPartitionId());
             if (partition == null) {
                 throw new MetaNotFoundException("partition " + task.getPartitionId() + " does not exist");
@@ -471,7 +458,7 @@ public abstract class AlterHandler extends MasterDaemon {
             
             LOG.info("after handle alter task tablet: {}, replica: {}", task.getSignature(), replica);
         } finally {
-            db.writeUnlock();
+            tbl.writeUnlock();
         }
     }
 

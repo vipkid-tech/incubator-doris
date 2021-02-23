@@ -30,6 +30,12 @@ under the License.
 
 该文档主要介绍 FE 的相关配置项。
 
+FE 的配置文件 `fe.conf` 通常存放在 FE 部署路径的 `conf/` 目录下。 而在 0.14 版本中会引入另一个配置文件 `fe_custom.conf`。该配置文件用于记录用户在运行是动态配置并持久化的配置项。
+
+FE 进程启动后，会先读取 `fe.conf` 中的配置项，之后再读取 `fe_custom.conf` 中的配置项。`fe_custom.conf` 中的配置项会覆盖 `fe.conf` 中相同的配置项。
+
+`fe_custom.conf` 文件的位置可以在 `fe.conf` 通过 `custom_config_dir` 配置项配置。 
+
 ## 查看配置项
 
 FE 的配置项有两种方式进行查看：
@@ -61,7 +67,7 @@ FE 的配置项有两种方式进行配置：
 
     在 `conf/fe.conf` 文件中添加和设置配置项。`fe.conf` 中的配置项会在 FE 进程启动时被读取。没有在 `fe.conf` 中的配置项将使用默认值。
     
-2. 动态配置
+2. 通过 MySQL 协议动态配置
 
     FE 启动后，可以通过以下命令动态设置配置项。该命令需要管理员权限。
     
@@ -75,13 +81,19 @@ FE 的配置项有两种方式进行配置：
     
     更多该命令的帮助，可以通过 `HELP ADMIN SET CONFIG;` 命令查看。
     
+3. 通过 HTTP 协议动态配置
+
+    具体请参阅 [Set Config Action](../http-actions/fe/set-config-action.md)
+    
+    该方式也可以持久化修改后的配置项。配置项将持久化在 `fe_custom.conf` 文件中，在 FE 重启后仍会生效。
+    
 ## 应用举例
 
-1. 修改 `async_load_task_pool_size`
+1. 修改 `async_pending_load_task_pool_size`
 
     通过 `ADMIN SHOW FRONTEND CONFIG;` 可以查看到该配置项不能动态配置（`IsMutable` 为 false）。则需要在 `fe.conf` 中添加：
     
-    `async_load_task_pool_size=20`
+    `async_pending_load_task_pool_size=20`
     
     之后重启 FE 进程以生效该配置。
     
@@ -121,6 +133,22 @@ FE 的配置项有两种方式进行配置：
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
+
+此配置仅用于与旧版本兼容，该配置已经被`async_loading_load_task_pool_size`所取代，将来会被移除。
+
+### `async_loading_load_task_pool_size`
+
+`loading_load`任务执行程序池大小。 该池大小限制了正在运行的最大`loading_load`任务数。
+
+当前，它仅限制`broker load`的`loading_load`任务的数量。
+
+### `async_pending_load_task_pool_size`
+
+`pending_load`任务执行程序池大小。 该池大小限制了正在运行的最大`pending_load`任务数。
+
+当前，它仅限制`broker load`和`spark load`的`pending_load`任务的数量。
+
+它应该小于`max_running_txn_num_per_db`的值。
 
 ### `audit_log_delete_age`
 
@@ -207,6 +235,12 @@ FE 的配置项有两种方式进行配置：
 ### `consistency_check_end_time`
 
 ### `consistency_check_start_time`
+
+### `custom_config_dir`
+
+配置 `fe_custom.conf` 文件的位置。默认为 `conf/` 目录下。
+
+在某些部署环境下，`conf/` 目录可能因为系统的版本升级被覆盖掉。这会导致用户在运行是持久化修改的配置项也被覆盖。这时，我们可以将 `fe_custom.conf` 存储在另一个指定的目录中，以防止配置文件被覆盖。
 
 ### `db_used_data_quota_update_interval_secs`
 
@@ -487,7 +521,7 @@ current running txns on db xxx is xx, larger than limit xx
 
 类型：long
 说明：用于控制一个 clone 任务的最小超时时间。单位秒。
-默认值：120
+默认值：180
 动态修改：是
 
 见 `max_clone_task_timeout_sec` 说明。
@@ -553,6 +587,14 @@ current running txns on db xxx is xx, larger than limit xx
 ### `resource_group`
 
 ### `rewrite_count_distinct_to_bitmap_hll`
+
+该变量为 session variable，session 级别生效。
+
++ 类型：boolean
++ 描述：**仅对于 AGG 模型的表来说**，当变量为 true 时，用户查询时包含 count(distinct c1) 这类聚合函数时，如果 c1 列本身类型为 bitmap，则 count distnct 会改写为 bitmap_union_count(c1)。
+        当 c1 列本身类型为 hll，则 count distinct 会改写为 hll_union_agg(c1)
+        如果变量为 false，则不发生任何改写。
++ 默认值：true。
 
 ### `rpc_port`
 
@@ -687,14 +729,6 @@ thrift_client_timeout_ms 的值被设置为大于0来避免线程卡在java.net.
 将此参数设置为 true，则 Doris 会自动使用空白副本填充所有副本都以损坏或丢失的 Tablet。
 
 默认为 false。
-
-
-### `enable_odbc_table`
-
-将此参数设置为 true，则 Doris 能够支持ODBC的外表建立，查询。具体ODBC表的使用方式，参考ODBC表的使用文档。
-
-在该功能仍然在实验阶段，所以当前改参数默认为 false。
-
 
 ### `default_db_data_quota_bytes`
 

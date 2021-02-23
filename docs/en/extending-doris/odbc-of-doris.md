@@ -31,6 +31,7 @@ ODBC external table of Doris provides Doris access to external tables through th
 
 1. Support various data sources to access Doris
 2. Support Doris query with tables in various data sources to perform more complex analysis operations
+3. Use insert into to write the query results executed by Doris to the external data source
 
 
 This document mainly introduces the implementation principle and usage of this ODBC external table.
@@ -104,7 +105,7 @@ Parameter | Description
 ---|---
 **hosts** | IP address of external database
 **driver** | The driver name of ODBC Driver, which needs to be/conf/odbcinst.ini. The driver names should be consistent.
-**type** | The type of external database, currently supports Oracle and MySQL
+**type** | The type of external database, currently supports Oracle, MySQL and PostgerSQL
 **user** | The user name of database
 **password** | password for the user
 
@@ -130,25 +131,42 @@ FileUsage       = 1
 
 ### Query usage
 
-After the ODBC external table is built in Doris, it is no different from ordinary Doris tables except that the data model (rollup, pre aggregation, materialized view, etc.) in Doris cannot be used.
+After the ODBC external table is create in Doris, it is no different from ordinary Doris tables except that the data model (rollup, pre aggregation, materialized view, etc.) in Doris cannot be used.
 
 ```
 select * from oracle_table where k1 > 1000 and k3 ='term' or k4 like '%doris'
 ```
 
+### Data write
 
+After the ODBC external table is create in Doris, the data can be written directly by the `insert into` statement, the query results of Doris can be written to the ODBC external table, or the data can be imported from one ODBC table to another.
+
+```
+insert into oracle_table values(1, "doris");
+insert into oracle_table select * from postgre_table;
+```
+#### Transaction
+
+
+The data of Doris is written to the external table by a group of batch. If the import is interrupted, the data written before may need to be rolled back. Therefore, the ODBC external table supports transactions when data is written. Transaction support needs to be supported set by session variable: `enable_odbc_transcation`.
+
+```
+set enable_odbc_transcation = true; 
+```
+
+Transactions ensure the atomicity of ODBC external table writing, but it will reduce the performance of data writing ., so we can consider turning on the way as appropriate.
 
 ## Data type mapping
 
 There are different data types among different database. Here, the types in each database and the data type matching in Doris are listed.
 
-### MySQL Type
+### MySQL 
 
 |  MySQL  | Doris  |             Alternation rules              |
 | :------: | :----: | :-------------------------------: |
 |  BOOLEAN  | BOOLEAN  |                         |
-|   CHAR   |  CHAR  |            Only utf8 encoding is supported           |
-| VARCHAR | VARCHAR |       Only utf8 encoding is supported      |
+|   CHAR   |  CHAR  |            Only UTF8 encoding is supported           |
+| VARCHAR | VARCHAR |       Only UTF8 encoding is supported      |
 |   DATE   |  DATE  |                                   |
 |  FLOAT   |  FLOAT  |                                   |
 |   TINYINT   | TINYINT |  |
@@ -160,7 +178,23 @@ There are different data types among different database. Here, the types in each
 |   DATETIME  | DATETIME |  |
 |   DECIMAL  | DECIMAL |  |
 
-### Oracle Type                          
+### PostgreSQL
+
+|  PostgreSQL  | Doris  |             Alternation rules              |
+| :------: | :----: | :-------------------------------: |
+|  BOOLEAN  | BOOLEAN  |                         |
+|   CHAR   |  CHAR  |            Only UTF8 encoding is supported            |
+| VARCHAR | VARCHAR |       Only UTF8 encoding is supported
+|   DATE   |  DATE  |                                   |
+|  REAL   |  FLOAT  |                                   |
+|   SMALLINT  | SMALLINT |  |
+|   INT  | INT |  |
+|   BIGINT  | BIGINT |  |
+|   DOUBLE  | DOUBLE |  |
+|   TIMESTAMP  | DATETIME |  |
+|   DECIMAL  | DECIMAL |  |
+
+### Oracle                          
 
 |  Oracle  | Doris  |            Alternation rules               |
 | :------: | :----: | :-------------------------------: |

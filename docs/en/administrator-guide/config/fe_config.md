@@ -30,6 +30,12 @@ under the License.
 
 This document mainly introduces the relevant configuration items of FE.
 
+The FE configuration file `fe.conf` is usually stored in the `conf/` directory of the FE deployment path. In version 0.14, another configuration file `fe_custom.conf` will be introduced. The configuration file is used to record the configuration items that are dynamically configured and persisted by the user during operation.
+
+After the FE process is started, it will read the configuration items in `fe.conf` first, and then read the configuration items in `fe_custom.conf`. The configuration items in `fe_custom.conf` will overwrite the same configuration items in `fe.conf`.
+
+The location of the `fe_custom.conf` file can be configured in `fe.conf` through the `custom_config_dir` configuration item.
+
 ## View configuration items
 
 There are two ways to view the configuration items of FE:
@@ -61,7 +67,7 @@ There are two ways to configure FE configuration items:
 
     Add and set configuration items in the `conf/fe.conf` file. The configuration items in `fe.conf` will be read when the FE process starts. Configuration items not in `fe.conf` will use default values.
     
-2. Dynamic configuration
+2. Dynamic configuration via MySQL protocol
 
     After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator privilege.
 
@@ -74,14 +80,20 @@ There are two ways to configure FE configuration items:
     **Configuration items modified in this way will become invalid after the FE process restarts.**
 
     For more help on this command, you can view it through the `HELP ADMIN SET CONFIG;` command.
+    
+3. Dynamic configuration via HTTP protocol
+
+    For details, please refer to [Set Config Action](../http-actions/fe/set-config-action.md)
+
+    This method can also persist the modified configuration items. The configuration items will be persisted in the `fe_custom.conf` file and will still take effect after FE is restarted.
 
 ## Examples
 
-1. Modify `async_load_task_pool_size`
+1. Modify `async_pending_load_task_pool_size`
 
     Through `ADMIN SHOW FRONTEND CONFIG;` you can see that this configuration item cannot be dynamically configured (`IsMutable` is false). You need to add in `fe.conf`:
 
-    `async_load_task_pool_size = 20`
+    `async_pending_load_task_pool_size = 20`
 
     Then restart the FE process to take effect the configuration.
     
@@ -99,7 +111,7 @@ There are two ways to configure FE configuration items:
     set forward_to_master = true;
     ADMIN SHOW FRONTEND CONFIG;
     ```
-    
+
     After modification in the above manner, if the Master FE restarts or a Master election is performed, the configuration will be invalid. You can add the configuration item directly in `fe.conf` and restart the FE to make the configuration item permanent.
 
 3. Modify `max_distribution_pruner_recursion_depth`
@@ -123,6 +135,22 @@ But at the same time, it will cause the submission of failed or failed execution
 ### `alter_table_timeout_second`
 
 ### `async_load_task_pool_size`
+
+This configuration is just for compatible with old version, this config has been replaced by async_loading_load_task_pool_size, it will be removed in the future.
+
+### `async_loading_load_task_pool_size`
+
+The loading_load task executor pool size. This pool size limits the max running loading_load tasks.
+
+Currently, it only limits the loading_load task of broker load.
+
+### `async_pending_load_task_pool_size`
+
+The pending_load task executor pool size. This pool size limits the max running pending_load tasks.
+
+Currently, it only limits the pending_load task of broker load and spark load.
+
+It should be less than 'max_running_txn_num_per_db'
 
 ### `audit_log_delete_age`
 
@@ -209,6 +237,12 @@ But at the same time, it will cause the submission of failed or failed execution
 ### `consistency_check_end_time`
 
 ### `consistency_check_start_time`
+
+### `custom_config_dir`
+
+Configure the location of the `fe_custom.conf` file. The default is in the `conf/` directory.
+
+In some deployment environments, the `conf/` directory may be overwritten due to system upgrades. This will cause the user modified configuration items to be overwritten. At this time, we can store `fe_custom.conf` in another specified directory to prevent the configuration file from being overwritten.
 
 ### `db_used_data_quota_update_interval_secs`
 
@@ -493,7 +527,7 @@ This configuration is specifically used to limit timeout setting for stream load
 
 Type: long
 Description: Used to control the minimum timeout of a clone task. The unit is second.
-Default value: 120
+Default value: 180
 Dynamic modification: yes
 
 See the description of `max_clone_task_timeout_sec`.
@@ -559,6 +593,14 @@ See the description of `max_clone_task_timeout_sec`.
 ### `resource_group`
 
 ### `rewrite_count_distinct_to_bitmap_hll`
+
+This variable is a session variable, and the session level takes effect.
+
++ Type: boolean
++ Description: **Only for the table of the AGG model**, when the variable is true, when the user query contains aggregate functions such as count(distinct c1), if the type of the c1 column itself is bitmap, count distnct will be rewritten It is bitmap_union_count(c1).
+         When the type of the c1 column itself is hll, count distinct will be rewritten as hll_union_agg(c1)
+         If the variable is false, no overwriting occurs.
++ Default value: true.
 
 ### `rpc_port`
 
@@ -693,12 +735,6 @@ In some very special circumstances, such as code bugs, or human misoperation, et
 Set to true so that Doris will automatically use blank replicas to fill tablets which all replicas have been damaged or missing.
 
 Default is false.
-
-### `enable_odbc_table`
-
-If this parameter is set to true, Doris can support ODBC external table creation and query. For specific usage of ODBC table, please refer to the use document of ODBC table
-
-The function is still in the experimental stage, so the default value is false.
 
 
 ### `default_db_data_quota_bytes`

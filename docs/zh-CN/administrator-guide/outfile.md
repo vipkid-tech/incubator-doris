@@ -30,7 +30,7 @@ under the License.
 
 ## 语法
 
-`SELECT INTO OUTFILE` 语句可以将查询结果导出到文件中。目前仅支持通过 Broker 进程导出到远端存储，如 HDFS，S3，BOS 上。语法如下
+`SELECT INTO OUTFILE` 语句可以将查询结果导出到文件中。目前仅支持通过 Broker 进程导出到远端存储，如 HDFS，S3，BOS，COS（腾讯云）上。语法如下
 
 ```
 query_stmt
@@ -88,7 +88,7 @@ INTO OUTFILE "file_path"
     SELECT * FROM tbl
     INTO OUTFILE "hdfs:/path/to/result_"
     FORMAT AS CSV
-    PROPERTIELS
+    PROPERTIES
     (
         "broker.name" = "my_broker",
         "broker.hadoop.security.authentication" = "kerberos",
@@ -116,7 +116,7 @@ INTO OUTFILE "file_path"
     (SELECT k3 FROM tbl2)
     SELEC k1 FROM x1 UNION SELECT k3 FROM x2
     INTO OUTFILE "hdfs:/path/to/result_"
-    PROPERTIELS
+    PROPERTIES
     (
         "broker.name" = "my_broker",
         "broker.username"="user",
@@ -141,7 +141,7 @@ INTO OUTFILE "file_path"
     SELECT k1 FROM tbl1 UNION SELECT k2 FROM tbl1
     INTO OUTFILE "bos://bucket/result_"
     FORMAT AS PARQUET
-    PROPERTIELS
+    PROPERTIES
     (
         "broker.name" = "my_broker",
         "broker.bos_endpoint" = "http://bj.bcebos.com",
@@ -153,7 +153,33 @@ INTO OUTFILE "file_path"
     最终生成文件如如果不大于 1GB，则为：`result_0.parquet`。
     
     如果大于 1GB，则可能为 `result_0.parquet, result_1.parquet, ...`。
-    
+
+4. 示例4
+
+   将 select 语句的查询结果导出到文件 `cos://${bucket_name}/path/result.txt`。指定导出格式为 csv。
+   ```
+   select k1,k2,v1 from tbl1 limit 100000
+   into outfile "s3a://my_bucket/export/my_file_"
+   FORMAT AS CSV
+   PROPERTIES
+   (
+       "broker.name" = "hdfs_broker",
+       "broker.fs.s3a.access.key" = "xxx",
+       "broker.fs.s3a.secret.key" = "xxxx",
+       "broker.fs.s3a.endpoint" = "https://cos.xxxxxx.myqcloud.com/",
+       "column_separator" = ",",
+       "line_delimiter" = "\n",
+       "max_file_size" = "1024MB"
+    )
+    ```
+   最终生成文件如如果不大于 1GB，则为：`my_file_0.csv`。
+
+   如果大于 1GB，则可能为 `my_file_0.csv, result_1.csv, ...`。
+
+   在cos上验证
+   1. 不存在的path会自动创建
+   2. access.key/secret.key/endpoint需要和cos的同学确认。尤其是endpoint的值，不需要填写bucket_name。
+
 ## 返回结果
 
 导出命令为同步命令。命令返回，即表示操作结束。

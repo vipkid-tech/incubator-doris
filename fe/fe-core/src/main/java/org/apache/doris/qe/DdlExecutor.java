@@ -80,7 +80,6 @@ import org.apache.doris.catalog.Catalog;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.load.EtlJobType;
-import org.apache.doris.load.Load;
 
 public class DdlExecutor {
     public static void execute(Catalog catalog, DdlStmt ddlStmt) throws Exception {
@@ -129,17 +128,23 @@ public class DdlExecutor {
                 throw new DdlException("Load job by hadoop cluster is disabled."
                         + " Try using broker load. See 'help broker load;'");
             }
-            if (loadStmt.getVersion().equals(Load.VERSION) || jobType == EtlJobType.HADOOP) {
+            if (jobType == EtlJobType.HADOOP) {
                 catalog.getLoadManager().createLoadJobV1FromStmt(loadStmt, jobType, System.currentTimeMillis());
             } else {
                 catalog.getLoadManager().createLoadJobFromStmt(loadStmt);
             }
         } else if (ddlStmt instanceof CancelLoadStmt) {
-            if (catalog.getLoadInstance().isLabelExist(
-                    ((CancelLoadStmt) ddlStmt).getDbName(), ((CancelLoadStmt) ddlStmt).getLabel())) {
-                catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt);
-            } else {
-                catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt);
+            boolean isAccurateMatch = ((CancelLoadStmt) ddlStmt).isAccurateMatch();
+            boolean isLabelExist = catalog.getLoadInstance().isLabelExist(
+                    ((CancelLoadStmt) ddlStmt).getDbName(),
+                    ((CancelLoadStmt) ddlStmt).getLabel(), isAccurateMatch);
+            if (isLabelExist) {
+                catalog.getLoadInstance().cancelLoadJob((CancelLoadStmt) ddlStmt,
+                        isAccurateMatch);
+            }
+            if (!isLabelExist || isAccurateMatch) {
+                catalog.getLoadManager().cancelLoadJob((CancelLoadStmt) ddlStmt,
+                        isAccurateMatch);
             }
         } else if (ddlStmt instanceof CreateRoutineLoadStmt) {
             catalog.getRoutineLoadManager().createRoutineLoadJob((CreateRoutineLoadStmt) ddlStmt);

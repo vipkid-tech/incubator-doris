@@ -31,6 +31,7 @@
 #include <string>
 
 #include "common/config.h"
+#include "gen_cpp/internal_service.pb.h"
 #include "olap/olap_define.h"
 #include "runtime/cache/cache_utils.h"
 #include "runtime/mem_pool.h"
@@ -40,7 +41,6 @@
 
 namespace doris {
 
-enum PCacheStatus;
 class PCacheParam;
 class PCacheValue;
 class PCacheResponse;
@@ -112,7 +112,7 @@ typedef boost::unordered_map<PartitionKey, PartitionRowBatch*> PartitionRowBatch
 
 /**
 * Cache the result of one SQL, include many partition rowsets.
-* Sql Cache: The partiton ID comes from the partition lastest updated.
+* Sql Cache: The partition ID comes from the partition last updated.
 * Partition Cache: The partition ID comes from the partition scanned by query.
 * The above two modes use the same cache structure.
 */

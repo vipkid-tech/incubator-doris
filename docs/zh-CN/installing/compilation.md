@@ -93,11 +93,15 @@ under the License.
 
 1. 系统依赖
 
-    `GCC 5.3.1+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+`
+    `GCC 7.3+, Oracle JDK 1.8+, Python 2.7+, Apache Maven 3.5+, CMake 3.11+     Bison 3.0+`
 
     如果使用Ubuntu 16.04 及以上系统 可以执行以下命令来安装依赖
     
-    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev`
+    `sudo apt-get install build-essential openjdk-8-jdk maven cmake byacc flex automake libtool-bin bison binutils-dev libiberty-dev zip unzip libncurses5-dev curl git ninja-build python`
+
+    如果是CentOS 可以执行以下命令
+
+    `sudo yum groupinstall 'Development Tools' && sudo yum install maven cmake byacc flex automake libtool bison binutils-devel zip unzip ncurses-devel curl git wget python2 glibc-static libstdc++-static java-1.8.0-openjdk`
 
     安装完成后，自行设置环境变量 `PATH`, `JAVA_HOME` 等。
     
@@ -108,6 +112,12 @@ under the License.
     ```
     
     编译完成后，产出文件在 `output/` 目录中。
+
+## 常见问题
+
+1. `Could not transfer artifact net.sourceforge.czt.dev:cup-maven-plugin:pom:1.6-cdh from/to xxx`
+
+    如遇到上述错误，请参照 [PR #4769](https://github.com/apache/incubator-doris/pull/4769/files) 修改 `fe/pom.xml` 中 cloudera 相关的仓库配置。
 
 ## 特别声明
 

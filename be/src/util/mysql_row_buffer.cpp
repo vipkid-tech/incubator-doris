@@ -55,11 +55,8 @@ static char* pack_vlen(char* packet, uint64_t length) {
     int8store(packet, length);
     return packet + 8;
 }
-MysqlRowBuffer::MysqlRowBuffer():
-    _pos(_default_buf),
-    _buf(_default_buf),
-    _buf_size(sizeof(_default_buf)) {
-}
+MysqlRowBuffer::MysqlRowBuffer()
+        : _pos(_default_buf), _buf(_default_buf), _buf_size(sizeof(_default_buf)) {}
 
 MysqlRowBuffer::~MysqlRowBuffer() {
     if (_buf != _default_buf) {
@@ -80,7 +77,7 @@ int MysqlRowBuffer::reserve(int size) {
     }
 
     int alloc_size = std::max(need_size, _buf_size * 2);
-    char* new_buf = new(std::nothrow) char[alloc_size];
+    char* new_buf = new (std::nothrow) char[alloc_size];
 
     if (NULL == new_buf) {
         LOG(ERROR) << "alloc memory failed. size = " << alloc_size;
@@ -105,7 +102,7 @@ int MysqlRowBuffer::push_tinyint(int8_t data) {
     int ret = reserve(3 + MAX_TINYINT_WIDTH);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return ret;
     }
 
@@ -126,7 +123,7 @@ int MysqlRowBuffer::push_smallint(int16_t data) {
     int ret = reserve(3 + MAX_SMALLINT_WIDTH);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return ret;
     }
 
@@ -147,7 +144,7 @@ int MysqlRowBuffer::push_int(int32_t data) {
     int ret = reserve(3 + MAX_INT_WIDTH);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return ret;
     }
 
@@ -168,7 +165,7 @@ int MysqlRowBuffer::push_bigint(int64_t data) {
     int ret = reserve(3 + MAX_BIGINT_WIDTH);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return ret;
     }
 
@@ -189,7 +186,7 @@ int MysqlRowBuffer::push_unsigned_bigint(uint64_t data) {
     int ret = reserve(4 + MAX_BIGINT_WIDTH);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return ret;
     }
 
@@ -210,7 +207,7 @@ int MysqlRowBuffer::push_float(float data) {
     int ret = reserve(3 + MAX_FLOAT_STR_LENGTH);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return ret;
     }
 
@@ -231,7 +228,7 @@ int MysqlRowBuffer::push_double(double data) {
     int ret = reserve(3 + MAX_DOUBLE_STR_LENGTH);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return ret;
     }
 
@@ -257,11 +254,11 @@ int MysqlRowBuffer::push_string(const char* str, int length) {
     int ret = reserve(9 + length);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return ret;
     }
 
-    _pos =  pack_vlen(_pos, length);
+    _pos = pack_vlen(_pos, length);
     memcpy(_pos, str, length);
     _pos += length;
     return 0;
@@ -271,7 +268,7 @@ int MysqlRowBuffer::push_null() {
     int ret = reserve(1);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return ret;
     }
 
@@ -284,7 +281,7 @@ char* MysqlRowBuffer::reserved(int size) {
     int ret = reserve(size);
 
     if (0 != ret) {
-        LOG(ERROR) << "mysql row buffer reserver failed.";
+        LOG(ERROR) << "mysql row buffer reserve failed.";
         return NULL;
     }
 
@@ -294,6 +291,6 @@ char* MysqlRowBuffer::reserved(int size) {
     return old_buf;
 }
 
-}
+} // namespace doris
 
 /* vim: set ts=4 sw=4 sts=4 tw=100 */

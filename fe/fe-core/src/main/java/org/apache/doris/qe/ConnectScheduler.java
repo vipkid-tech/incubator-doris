@@ -46,7 +46,7 @@ public class ConnectScheduler {
     private int maxConnections;
     private int numberConnection;
     private AtomicInteger nextConnectionId;
-    private Map<Long, ConnectContext> connectionMap = Maps.newHashMap();
+    private Map<Long, ConnectContext> connectionMap = Maps.newConcurrentMap();
     private Map<String, AtomicInteger> connByUser = Maps.newHashMap();
     private ExecutorService executor = ThreadPoolManager.newDaemonCacheThreadPool(Config.max_connection_scheduler_threads_num, "connect-scheduler-pool", true);
 
@@ -89,10 +89,7 @@ public class ConnectScheduler {
         if(context instanceof NConnectContext){
             return true;
         }
-        if (executor.submit(new LoopHandler(context)) == null) {
-            LOG.warn("Submit one thread failed.");
-            return false;
-        }
+        executor.submit(new LoopHandler(context));
         return true;
     }
 

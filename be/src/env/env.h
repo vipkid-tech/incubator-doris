@@ -35,12 +35,7 @@ public:
     // CREATE_OR_OPEN               | opens             | creates
     // MUST_CREATE                  | fails             | creates
     // MUST_EXIST                   | opens             | fails
-    enum OpenMode { 
-      CREATE_OR_OPEN_WITH_TRUNCATE, 
-      CREATE_OR_OPEN, 
-      MUST_CREATE, 
-      MUST_EXIST 
-    };
+    enum OpenMode { CREATE_OR_OPEN_WITH_TRUNCATE, CREATE_OR_OPEN, MUST_CREATE, MUST_EXIST };
 
     Env() {}
     virtual ~Env() {}
@@ -123,7 +118,7 @@ public:
     //
     // The function call extra cost is acceptable. Compared with returning all children
     // into a given vector, the performance of this method is 5% worse. However this
-    // approach is more flexiable and efficient in fulfilling other requirements.
+    // approach is more flexible and efficient in fulfilling other requirements.
     //
     // Returns OK if "dir" exists.
     //         NotFound if "dir" does not exist, the calling process does not have
@@ -265,10 +260,7 @@ public:
 // one of Append or PositionedAppend. We support only Append here.
 class WritableFile {
 public:
-    enum FlushMode { 
-      FLUSH_SYNC, 
-      FLUSH_ASYNC 
-    };
+    enum FlushMode { FLUSH_SYNC, FLUSH_ASYNC };
 
     WritableFile() {}
     virtual ~WritableFile() {}

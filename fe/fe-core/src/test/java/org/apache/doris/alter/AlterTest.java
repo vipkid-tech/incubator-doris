@@ -27,6 +27,8 @@ import org.apache.doris.catalog.Database;
 import org.apache.doris.catalog.MaterializedIndex;
 import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Partition;
+import org.apache.doris.catalog.PrimitiveType;
+import org.apache.doris.catalog.Table;
 import org.apache.doris.catalog.Type;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
@@ -35,12 +37,12 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.thrift.TStorageMedium;
 import org.apache.doris.utframe.UtFrameUtils;
 
+import com.google.common.collect.Lists;
+
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
-
-import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -140,6 +142,24 @@ public class AlterTest {
                 ")\n" +
                 "DISTRIBUTED BY HASH(k2) BUCKETS 3\n" +
                 "PROPERTIES('replication_num' = '1');");
+
+        createTable("create external table test.odbc_table\n" +
+                "(  `k1` bigint(20) COMMENT \"\",\n" +
+                "  `k2` datetime COMMENT \"\",\n" +
+                "  `k3` varchar(20) COMMENT \"\",\n" +
+                "  `k4` varchar(100) COMMENT \"\",\n" +
+                "  `k5` float COMMENT \"\"\n" +
+                ")ENGINE=ODBC\n" +
+                "PROPERTIES (\n" +
+                "\"host\" = \"127.0.0.1\",\n" +
+                "\"port\" = \"3306\",\n" +
+                "\"user\" = \"root\",\n" +
+                "\"password\" = \"123\",\n" +
+                "\"database\" = \"db1\",\n" +
+                "\"table\" = \"tbl1\",\n" +
+                "\"driver\" = \"Oracle Driver\",\n" +
+                "\"odbc_type\" = \"oracle\"\n" +
+                ");");
     }
 
     @AfterClass
@@ -369,6 +389,11 @@ public class AlterTest {
             }
             System.out.println(alterJobV2.getType() + " alter job " + alterJobV2.getJobId() + " is done. state: " + alterJobV2.getJobState());
             Assert.assertEquals(AlterJobV2.JobState.FINISHED, alterJobV2.getJobState());
+            Database db = Catalog.getCurrentCatalog().getDb(alterJobV2.getDbId());
+            OlapTable tbl = (OlapTable) db.getTable(alterJobV2.getTableId());
+            while (tbl.getState() != OlapTable.OlapTableState.NORMAL) {
+                Thread.sleep(1000);
+            }
         }
     }
 
@@ -547,5 +572,78 @@ public class AlterTest {
         Assert.assertEquals(3, replace3.getPartition("replace3").getMaterializedIndices(MaterializedIndex.IndexExtState.VISIBLE).size());
         Assert.assertNotNull(replace3.getIndexIdByName("r1"));
         Assert.assertNotNull(replace3.getIndexIdByName("r2"));
+    }
+
+    @Test
+    public void testExternalTableAlterOperations() throws Exception {
+        // external table do not support partition operation
+        String stmt = "alter table test.odbc_table add partition p3 values less than('2020-04-01'), add partition p4 values less than('2020-05-01')";
+        alterTable(stmt, true);
+
+        // external table do not support rollup
+        stmt = "alter table test.odbc_table add rollup r1 (k1)";
+        alterTable(stmt, true);
+
+        // external table support add column
+        stmt = "alter table test.odbc_table add column k6 INT KEY after k1, add column k7 TINYINT KEY after k6";
+        alterTable(stmt, false);
+        Database db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        Table odbc_table = db.getTable("odbc_table");
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 7);
+        Assert.assertEquals(odbc_table.getBaseSchema().get(1).getDataType(), PrimitiveType.INT);
+        Assert.assertEquals(odbc_table.getBaseSchema().get(2).getDataType(), PrimitiveType.TINYINT);
+
+        // external table support drop column
+        stmt = "alter table test.odbc_table drop column k7";
+        alterTable(stmt, false);
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        odbc_table = db.getTable("odbc_table");
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 6);
+
+        // external table support modify column
+        stmt = "alter table test.odbc_table modify column k6 bigint after k5";
+        alterTable(stmt, false);
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        odbc_table = db.getTable("odbc_table");
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 6);
+        Assert.assertEquals(odbc_table.getBaseSchema().get(5).getDataType(), PrimitiveType.BIGINT);
+
+        // external table support reorder column
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        odbc_table = db.getTable("odbc_table");
+        Assert.assertTrue(odbc_table.getBaseSchema().stream().
+                map(column -> column.getName()).
+                reduce("", (totalName, columnName) -> totalName + columnName).equals("k1k2k3k4k5k6"));
+        stmt = "alter table test.odbc_table order by (k6, k5, k4, k3, k2, k1)";
+        alterTable(stmt, false);
+        Assert.assertTrue(odbc_table.getBaseSchema().stream().
+                map(column -> column.getName()).
+                reduce("", (totalName, columnName) -> totalName + columnName).equals("k6k5k4k3k2k1"));
+
+        // external table support drop column
+        stmt = "alter table test.odbc_table drop column k6";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k5";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k4";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k3";
+        alterTable(stmt, false);
+        stmt = "alter table test.odbc_table drop column k2";
+        alterTable(stmt, false);
+        // do not allow drop last column
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+        stmt = "alter table test.odbc_table drop column k1";
+        alterTable(stmt, true);
+        Assert.assertEquals(odbc_table.getBaseSchema().size(), 1);
+
+        // external table support rename operation
+        stmt = "alter table test.odbc_table rename oracle_table";
+        alterTable(stmt, false);
+        db = Catalog.getCurrentCatalog().getDb("default_cluster:test");
+        odbc_table = db.getTable("oracle_table");
+        Assert.assertTrue(odbc_table != null);
+        odbc_table = db.getTable("odbc_table");
+        Assert.assertTrue(odbc_table == null);
     }
 }

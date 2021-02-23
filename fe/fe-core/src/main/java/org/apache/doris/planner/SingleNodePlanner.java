@@ -33,7 +33,6 @@ import org.apache.doris.analysis.GroupByClause;
 import org.apache.doris.analysis.GroupingInfo;
 import org.apache.doris.analysis.InPredicate;
 import org.apache.doris.analysis.InlineViewRef;
-import org.apache.doris.analysis.IntLiteral;
 import org.apache.doris.analysis.IsNullPredicate;
 import org.apache.doris.analysis.JoinOperator;
 import org.apache.doris.analysis.LiteralExpr;
@@ -54,13 +53,11 @@ import org.apache.doris.catalog.Column;
 import org.apache.doris.catalog.FunctionSet;
 import org.apache.doris.catalog.MysqlTable;
 import org.apache.doris.catalog.OdbcTable;
-import org.apache.doris.catalog.OlapTable;
 import org.apache.doris.catalog.Table;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.Reference;
 import org.apache.doris.common.UserException;
-import org.apache.doris.common.util.Util;
 
 import com.google.common.base.Preconditions;
 import com.google.common.base.Predicate;
@@ -74,7 +71,8 @@ import org.apache.logging.log4j.Logger;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
+import java.util.HashSet;
+import java.util.Set;
 
 /**
  * Constructs a non-executable single-node plan from an analyzed parse tree.
@@ -87,7 +85,7 @@ public class SingleNodePlanner {
 
     private final PlannerContext ctx_;
     private final ArrayList<ScanNode> scanNodes = Lists.newArrayList();
-    private Map<UUID, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
+    private Map<Analyzer, List<ScanNode>> selectStmtToScanNodes = Maps.newHashMap();
 
     public SingleNodePlanner(PlannerContext ctx) {
         ctx_ = ctx;
@@ -286,7 +284,8 @@ public class SingleNodePlanner {
 
         if (analyzer.hasEmptyResultSet()) {
             // Must clear the scanNodes, otherwise we will get NPE in Coordinator::computeScanRangeAssignment
-            scanNodes.clear();
+            Set<TupleId> scanTupleIds = new HashSet<>(root.getAllScanTupleIds());
+            scanNodes.removeIf(scanNode -> scanTupleIds.contains(scanNode.getTupleIds().get(0)));
             PlanNode node = createEmptyNode(stmt, analyzer);
             // Ensure result exprs will be substituted by right outputSmap
             node.setOutputSmap(root.outputSmap);
@@ -778,7 +777,7 @@ public class SingleNodePlanner {
                             ((InlineViewRef) tableRef).getAnalyzer());
                 }
             }
-            List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getId());
+            List<ScanNode> scanNodeList = selectStmtToScanNodes.get(selectStmt.getAnalyzer());
             if (scanNodeList == null) {
                 return selectFailed;
             }
@@ -960,10 +959,9 @@ public class SingleNodePlanner {
                 if (!inPredicate.isLiteralChildren() || inPredicate.isNotIn()) {
                     continue;
                 }
-                if (inPredicate.getChild(0).unwrapExpr(false) instanceof LiteralExpr) {
-                    // If child(0) of the in predicate is a constant expression,
+                if (!(inPredicate.getChild(0).unwrapExpr(false) instanceof SlotRef)) {
+                    // If child(0) of the in predicate is not a SlotRef,
                     // then other children of in predicate should not be used as a condition for partition prune.
-                    // Such as "where  'Hi' in ('Hi', 'hello') and ... "
                     continue;
                 }
                 if (null == partitionColumnFilter) {
@@ -1365,14 +1363,6 @@ public class SingleNodePlanner {
         switch (tblRef.getTable().getType()) {
             case OLAP:
                 OlapScanNode olapNode = new OlapScanNode(ctx_.getNextNodeId(), tblRef.getDesc(), "OlapScanNode");
-                if (!Util.showHiddenColumns() && ((OlapTable) tblRef.getTable()).hasDeleteSign()) {
-                    SlotRef deleteSignSlot = new SlotRef(tblRef.getAliasAsName(), Column.DELETE_SIGN);
-                    deleteSignSlot.analyze(analyzer);
-                    deleteSignSlot.getDesc().setIsMaterialized(true);
-                    Expr conjunct = new BinaryPredicate(BinaryPredicate.Operator.EQ, deleteSignSlot, new IntLiteral(0));
-                    conjunct.analyze(analyzer);
-                    analyzer.registerConjunct(conjunct, tblRef.getDesc().getId());
-                }
 
                 olapNode.setForceOpenPreAgg(tblRef.isForcePreAggOpened());
                 scanNode = olapNode;
@@ -1409,7 +1399,7 @@ public class SingleNodePlanner {
                 if ((tblRef.getJoinOp().isInnerJoin() || tblRef.getJoinOp().isLeftOuterJoin())) {
                     List<Expr> allConjuncts = analyzer.getConjuncts(analyzer.getAllTupleIds());
                     allConjuncts.removeAll(conjuncts);
-                    for (Expr conjunct: allConjuncts) {
+                    for (Expr conjunct : allConjuncts) {
                         if (org.apache.doris.analysis.Predicate.canPushDownPredicate(conjunct)) {
                             for (Expr eqJoinPredicate : eqJoinPredicates) {
                                 // we can ensure slot is left node, because NormalizeBinaryPredicatesRule
@@ -1464,7 +1454,7 @@ public class SingleNodePlanner {
         analyzer.materializeSlots(scanNode.getConjuncts());
 
         scanNodes.add(scanNode);
-        List<ScanNode> scanNodeList = selectStmtToScanNodes.computeIfAbsent(selectStmt.getId(), k -> Lists.newArrayList());
+        List<ScanNode> scanNodeList = selectStmtToScanNodes.computeIfAbsent(selectStmt.getAnalyzer(), k -> Lists.newArrayList());
         scanNodeList.add(scanNode);
         return scanNode;
     }
@@ -1481,7 +1471,7 @@ public class SingleNodePlanner {
 
         if (oldPredicate instanceof InPredicate) {
             InPredicate oldIP = (InPredicate) oldPredicate;
-            InPredicate ip =  new InPredicate(leftChild, oldIP.getListChildren(), oldIP.isNotIn());
+            InPredicate ip = new InPredicate(leftChild, oldIP.getListChildren(), oldIP.isNotIn());
             ip.analyzeNoThrow(analyzer);
             return ip;
         }
@@ -1906,10 +1896,11 @@ public class SingleNodePlanner {
      * Inner tuple: tuple 0 with a not materialized slot k1
      * In the above two cases, it is necessary to add a mini column to the inner tuple
      * to ensure that the number of rows in the inner query result is the number of rows in the table.
-     *
+     * <p>
      * After this function, the inner tuple is following:
      * case1. tuple 0: slot<k1> materialized true (new slot)
      * case2. tuple 0: slot<k1> materialized true (changed)
+     *
      * @param tblRef
      * @param analyzer
      */
@@ -1923,9 +1914,14 @@ public class SingleNodePlanner {
                 }
             }
             if (minimuColumn != null) {
-                SlotDescriptor slot = analyzer.getDescTbl().addSlotDescriptor(tblRef.getDesc());
-                slot.setColumn(minimuColumn);
-                slot.setIsMaterialized(true);
+                SlotDescriptor slot = tblRef.getDesc().getColumnSlot(minimuColumn.getName());
+                if (slot != null) {
+                    slot.setIsMaterialized(true);
+                } else {
+                    slot = analyzer.getDescTbl().addSlotDescriptor(tblRef.getDesc());
+                    slot.setColumn(minimuColumn);
+                    slot.setIsMaterialized(true);
+                }
             }
         }
     }
@@ -2095,7 +2091,7 @@ public class SingleNodePlanner {
                     } else {
                         // if grouping type is GROUPING_SETS and the predicate not in all grouping list,
                         // the predicate cannot be push down
-                        for (List<Expr> exprs: stmt.getGroupByClause().getGroupingSetList()) {
+                        for (List<Expr> exprs : stmt.getGroupByClause().getGroupingSetList()) {
                             if (!exprs.contains(sourceExpr)) {
                                 isAllSlotReferingGroupBys = false;
                                 break;

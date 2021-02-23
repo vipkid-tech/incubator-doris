@@ -68,6 +68,7 @@ under the License.
             [COLUMNS TERMINATED BY "column_separator"]
             [FORMAT AS "file_type"]
             [(column_list)]
+            [PRECEDING FILTER predicate]
             [SET (k1 = func(k2))]
             [WHERE predicate] 
             [DELETE ON label=true]
@@ -106,6 +107,10 @@ under the License.
 
             syntax: 
             (col_name1, col_name2, ...)
+
+            PRECEDING FILTER predicate:
+
+            Used to filter original data. The original data is the data without column mapping and transformation. The user can filter the data before conversion, select the desired data, and then perform the conversion.
             
             SET:
             
@@ -336,7 +341,8 @@ under the License.
     
     7. Load data into tables containing HLL columns, which can be columns in tables or columns in data
     
-        If there are three columns in the table (id, v1, v2, v3). The V1 and V2 columns are HLL columns. The imported source file has three columns. Then (column_list) declares that the first column is id, and the second and third columns are temporarily named k1, k2.
+        If there are 4 columns in the table are (id, v1, v2, v3). The v1 and v2 columns are hll columns. The imported source file has 3 columns, where the first column in the table = the first column in the source file, and the second and third columns in the table are the second and third columns in the source file, and the third column in the table is transformed. The four columns do not exist in the source file.
+        Then (column_list) declares that the first column is id, and the second and third columns are temporarily named k1, k2.
 
         In SET, the HLL column in the table must be specifically declared hll_hash. The V1 column in the table is equal to the hll_hash (k1) column in the original data.The v3 column in the table does not have a corresponding value in the original data, and empty_hll is used to supplement the default value.
 
@@ -453,6 +459,20 @@ under the License.
         "timeout" = "3600",
         "max_filter_ratio" = "0.1"
         );
+
+    14. Filter the original data first, and perform column mapping, conversion and filtering operations
+
+        LOAD LABEL example_db.label_filter
+        (
+         DATA INFILE("hdfs://host:port/user/data/*/test.txt")
+         INTO TABLE `tbl1`
+         COLUMNS TERMINATED BY ","
+         (k1,k2,v1,v2)
+         PRECEDING FILTER k1 > 2
+         SET (k1 = k1 +1)
+         WHERE k1 > 3
+        ) 
+        with BROKER "hdfs" ("username"="user", "password"="pass");
      
 ## keyword
 

@@ -19,13 +19,13 @@
 #define DORIS_BE_SRC_QUERY_EXEC_MERGE_JOIN_NODE_H
 
 #include <boost/scoped_ptr.hpp>
-#include <boost/unordered_set.hpp>
 #include <boost/thread.hpp>
+#include <boost/unordered_set.hpp>
 #include <string>
 
 #include "exec/exec_node.h"
+#include "gen_cpp/PlanNodes_types.h" // for TJoinOp
 #include "runtime/row_batch.h"
-#include "gen_cpp/PlanNodes_types.h"  // for TJoinOp
 
 namespace doris {
 
@@ -59,7 +59,7 @@ private:
     // non-equi-join conjuncts from the JOIN clause
     std::vector<ExprContext*> _other_join_conjunct_ctxs;
 
-    bool _eos;            // if true, nothing left to return in get_next()
+    bool _eos; // if true, nothing left to return in get_next()
 
     struct ChildReaderContext {
         RowBatch batch;
@@ -74,7 +74,7 @@ private:
                   current_row(NULL) {}
     };
     // _left_batch must be cleared before calling get_next().  used cache child(0)'s data
-    // _rigth_batch must be cleared before calling get_next().  used cache child(1)'s data
+    // _right_batch must be cleared before calling get_next().  used cache child(1)'s data
     // does not initialize all tuple ptrs in the row, only the ones that it
     // is responsible for.
     boost::scoped_ptr<ChildReaderContext> _left_child_ctx;
@@ -98,6 +98,6 @@ private:
     Status get_input_row(RuntimeState* state, int child_idx);
 };
 
-}
+} // namespace doris
 
 #endif

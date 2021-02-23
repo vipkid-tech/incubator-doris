@@ -36,7 +36,6 @@ import org.apache.doris.catalog.Partition;
 import org.apache.doris.catalog.Replica;
 import org.apache.doris.catalog.Tablet;
 import org.apache.doris.catalog.Type;
-import org.apache.doris.common.Config;
 import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.load.EtlJobType;
@@ -44,13 +43,13 @@ import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.QueryState.MysqlStateType;
 import org.apache.doris.utframe.UtFrameUtils;
 
-import com.google.common.collect.Lists;
-
 import org.apache.commons.lang3.StringUtils;
 import org.junit.AfterClass;
 import org.junit.Assert;
 import org.junit.BeforeClass;
 import org.junit.Test;
+
+import com.google.common.collect.Lists;
 
 import java.io.File;
 import java.util.List;
@@ -360,9 +359,8 @@ public class QueryPlanTest {
                 "\"replication_num\" = \"1\"\n" +
                 ");");
 
-        Config.enable_odbc_table = true;
         createTable("create external table test.odbc_oracle\n" +
-                "(k1 int, k2 int)\n" +
+                "(k1 float, k2 int)\n" +
                 "ENGINE=ODBC\n" +
                 "PROPERTIES (\n" +
                 "\"host\" = \"127.0.0.1\",\n" +
@@ -387,6 +385,19 @@ public class QueryPlanTest {
                 "\"table\" = \"tbl1\",\n" +
                 "\"driver\" = \"Oracle Driver\",\n" +
                 "\"odbc_type\" = \"mysql\"\n" +
+                ");");
+        
+        createTable("create table test.tbl_int_date (" +
+                "`date` datetime NULL," +
+                "`day` date NULL," +
+                "`site_id` int(11) NULL )" +
+                " ENGINE=OLAP " +
+                "DUPLICATE KEY(`date`, `day`, `site_id`)" +
+                "DISTRIBUTED BY HASH(`site_id`) BUCKETS 10 " +
+                "PROPERTIES (\n" +
+                "\"replication_num\" = \"1\",\n" +
+                "\"in_memory\" = \"false\",\n" +
+                "\"storage_format\" = \"V2\"\n" +
                 ");");
     }
 
@@ -903,23 +914,24 @@ public class QueryPlanTest {
 
         // 2.3 test can not convert to constant,middle when expr is not constant
         String sql23 = "select case 'a' when 'b' then 'a' when substr(k7,2,1) then 2 when false then 3 else 0 end as col23 from test.baseall";
-        Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql23),
-                "OUTPUT EXPRS:CASE'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
+        String a = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql23);
+        Assert.assertTrue(StringUtils.containsIgnoreCase(a,
+                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.1  first when expr is not constant
         String sql231 = "select case 'a' when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col231 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql231),
-                "OUTPUT EXPRS:CASE'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
+                "OUTPUT EXPRS:CASE 'a' WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 2.3.2 case expr is not constant
         String sql232 = "select case k1 when substr(k7,2,1) then 2 when 1 then 'a' when false then 3 else 0 end as col232 from test.baseall";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql232),
-                "OUTPUT EXPRS:CASE`k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
+                "OUTPUT EXPRS:CASE `k1` WHEN substr(`k7`, 2, 1) THEN '2' WHEN '1' THEN 'a' WHEN '0' THEN '3' ELSE '0' END"));
 
         // 3.1 test float,float in case expr
         String sql31 = "select case cast(100 as float) when 1 then 'a' when 2 then 'b' else 'other' end as col31;";
         Assert.assertTrue(StringUtils.containsIgnoreCase(UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "explain " + sql31),
-                "constant exprs: \n         CASE100.0 WHEN 1.0 THEN 'a' WHEN 2.0 THEN 'b' ELSE 'other' END"));
+                "constant exprs: \n         CASE 100.0 WHEN 1.0 THEN 'a' WHEN 2.0 THEN 'b' ELSE 'other' END"));
 
         // 4.1 test null in case expr return else
         String sql41 = "select case null when 1 then 'a' when 2 then 'b' else 'other' end as col41";
@@ -1223,8 +1235,15 @@ public class QueryPlanTest {
         String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("LIMIT 10"));
 
-        // ODBC table (Oracle)
+        // ODBC table (Oracle) not push down limit
         queryStr = "explain select * from odbc_oracle where k1 > 10 and abs(k1) > 10 limit 10";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        // abs is function, so Doris do not push down function except MySQL Database
+        // so should not push down limit operation
+        Assert.assertTrue(!explainString.contains("ROWNUM <= 10"));
+
+        // ODBC table (Oracle) push down limit
+        queryStr = "explain select * from odbc_oracle where k1 > 10 limit 10";
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("ROWNUM <= 10"));
 
@@ -1233,6 +1252,25 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
         Assert.assertTrue(explainString.contains("LIMIT 10"));
     }
+
+    @Test
+    public void testOdbcSink() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        // insert into odbc_oracle table
+        String queryStr = "explain insert into odbc_oracle select * from odbc_mysql";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("TABLENAME IN DORIS: odbc_oracle"));
+        Assert.assertTrue(explainString.contains("TABLE TYPE: ORACLE"));
+        Assert.assertTrue(explainString.contains("TABLENAME OF EXTERNAL TABLE: tbl1"));
+
+        // enable transaction of ODBC Sink
+        Deencapsulation.setField(connectContext.getSessionVariable(), "enableOdbcTransaction", true);
+        queryStr = "explain insert into odbc_oracle select * from odbc_mysql";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("EnableTransaction: true"));
+    }
+
 
     @Test
     public void testPreferBroadcastJoin() throws Exception {
@@ -1309,6 +1347,78 @@ public class QueryPlanTest {
         explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
         System.out.println(explainString);
         Assert.assertTrue(explainString.contains("AGGREGATE (update finalize)"));
+    }
+
+    public void testLeadAndLagFunction() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+
+        String queryStr = "explain select time, lead(query_time, 1, NULL) over () as time2 from test.test1";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lead(`query_time`, 1, NULL)"));
+
+        queryStr = "explain select time, lead(query_time, 1, 2) over () as time2 from test.test1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lead(`query_time`, 1, 2)"));
+
+        queryStr = "explain select time, lead(time, 1, '2020-01-01 00:00:00') over () as time2 from test.test1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lead(`time`, 1, '2020-01-01 00:00:00')"));
+
+        queryStr = "explain select time, lag(query_time, 1, 2) over () as time2 from test.test1";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, queryStr);
+        Assert.assertTrue(explainString.contains("lag(`query_time`, 1, 2)"));
+    }
+
+    @Test
+    public void testIntDateTime() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        //valid date
+        String sql = "select day from tbl_int_date where day in ('2020-10-30')";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
+        //valid date
+        sql = "select day from tbl_int_date where day in ('2020-10-30','2020-10-29')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00', '2020-10-29 00:00:00')"));
+
+        //valid datetime
+        sql = "select day from tbl_int_date where date in ('2020-10-30 12:12:30')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 12:12:30')"));
+        //valid datetime
+        sql = "select day from tbl_int_date where date in ('2020-10-30')";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
+
+        //int date
+        sql = "select day from tbl_int_date where day in (20201030)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `day` IN ('2020-10-30 00:00:00')"));
+        //int datetime
+        sql = "select day from tbl_int_date where date in (20201030)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("PREDICATES: `date` IN ('2020-10-30 00:00:00')"));
+    }
+
+    @Test
+    public void testOutJoinSmapReplace() throws Exception {
+        connectContext.setDatabase("default_cluster:test");
+        //valid date
+        String sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a right outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        String explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | 4"));
+
+        sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a left outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | `b`.`bid`"));
+
+        sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a full outer JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:`a`.`aid` | `b`.`bid`"));
+
+        sql = "SELECT a.aid, b.bid FROM (SELECT 3 AS aid) a JOIN (SELECT 4 AS bid) b ON (a.aid=b.bid)";
+        explainString = UtFrameUtils.getSQLPlanOrErrorMsg(connectContext, "EXPLAIN " + sql);
+        Assert.assertTrue(explainString.contains("OUTPUT EXPRS:3 | 4"));
     }
 }
 
